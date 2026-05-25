@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nhận Dạng Quần Áo - ANN</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+<style>
+  :root {
+    --bg: #0d0d0f;
+    --surface: #16161a;
+    --surface2: #1e1e24;
+    --border: #2a2a35;
+    --accent: #7c6af7;
+    --accent2: #4fd1c5;
+    --text: #eeeef0;
+    --muted: #7a7a8c;
+    --success: #4fd1c5;
+    --warn: #f6ad55;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 2.5rem;
+    animation: fadeDown 0.6s ease both;
+  }
+  header h1 {
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    background: linear-gradient(120deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  header p {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-top: 6px;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 14px;
+    font-size: 0.75rem;
+    font-family: 'DM Mono', monospace;
+    color: var(--muted);
+    margin-top: 10px;
+  }
+  .badge .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+  }
+  .badge.ready .dot { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .badge.loading .dot { background: var(--warn); animation: pulse 1s infinite; }
+
+  .app {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 1.5rem;
+    width: 100%;
+    max-width: 780px;
+    animation: fadeUp 0.7s 0.1s ease both;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.25rem;
+  }
+
+  .card-title {
+    font-size: 0.7rem;
+    font-family: 'DM Mono', monospace;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 12px;
+  }
+
+  /* Canvas */
+  #drawCanvas {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+    background: #000;
+    border-radius: 10px;
+    cursor: crosshair;
+    border: 1px solid var(--border);
+    touch-action: none;
+  }
+
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .btn {
+    flex: 1;
+    padding: 9px 0;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn:hover { background: var(--border); }
+  .btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .btn.primary:hover { opacity: 0.85; }
+
+  .brush-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+  }
+  .brush-row input[type=range] {
+    flex: 1;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  .rt-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 0.78rem;
+    color: var(--muted);
+    cursor: pointer;
+    font-family: 'DM Mono', monospace;
+  }
+  .rt-row input { accent-color: var(--accent); cursor: pointer; }
+
+  /* Result panel */
+  .result-top {
+    background: var(--surface2);
+    border-radius: 10px;
+    padding: 1rem;
+    text-align: center;
+    margin-bottom: 14px;
+    min-height: 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .result-emoji { font-size: 2rem; line-height: 1; margin-bottom: 4px; }
+  .result-label {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .result-conf {
+    font-size: 0.75rem;
+    font-family: 'DM Mono', monospace;
+    color: var(--accent2);
+    margin-top: 2px;
+  }
+  .result-hint {
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* Bar list */
+  .bar-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 7px;
+    font-size: 0.75rem;
+    font-family: 'DM Mono', monospace;
+  }
+  .bar-item .name {
+    width: 110px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  .bar-item .name.top { color: var(--text); font-weight: 500; }
+  .bar-track {
+    flex: 1;
+    height: 6px;
+    background: var(--surface2);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--border);
+    transition: width 0.4s cubic-bezier(.4,0,.2,1);
+  }
+  .bar-fill.top { background: var(--accent); }
+  .bar-item .pct {
+    width: 32px;
+    text-align: right;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  .bar-item .pct.top { color: var(--accent); }
+
+  /* Architecture note */
+  .arch {
+    margin-top: 14px;
+    padding: 10px 12px;
+    background: var(--surface2);
+    border-radius: 8px;
+    font-size: 0.72rem;
+    font-family: 'DM Mono', monospace;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+  .arch span { color: var(--accent2); }
+
+  @keyframes fadeDown { from { opacity:0; transform:translateY(-16px); } to { opacity:1; transform:none; } }
+  @keyframes fadeUp   { from { opacity:0; transform:translateY(16px); }  to { opacity:1; transform:none; } }
+  @keyframes pulse    { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
+  @media (max-width: 600px) {
+    .app { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Nhận Dạng Quần Áo</h1>
+  <p>Vẽ bằng chuột · ANN · Realtime</p>
+  <div class="badge loading" id="statusBadge">
+    <span class="dot"></span>
+    <span id="statusText">Đang tải mô hình...</span>
+  </div>
+</header>
+
+<div class="app">
+
+  <!-- Cột trái: Canvas -->
+  <div class="card">
+    <p class="card-title">Canvas vẽ</p>
+    <canvas id="drawCanvas" width="280" height="280"></canvas>
+
+    <div class="controls">
+      <button class="btn" id="clearBtn">🗑 Xóa</button>
+      <button class="btn primary" id="predictBtn">🔍 Nhận dạng</button>
+    </div>
+
+    <div class="brush-row">
+      <span>Bút</span>
+      <input type="range" id="brushSize" min="8" max="40" value="20" step="1">
+      <span id="brushVal">20</span>
+    </div>
+
+    <label class="rt-row">
+      <input type="checkbox" id="rtCheck" checked>
+      <span>Nhận dạng realtime</span>
+    </label>
+  </div>
+
+  <!-- Cột phải: Kết quả -->
+  <div class="card">
+    <p class="card-title">Kết quả</p>
+
+    <div class="result-top" id="resultTop">
+      <p class="result-hint" id="resultHint">Đang tải mô hình ANN...</p>
+    </div>
+
+    <div id="barList"></div>
+
+    <div class="arch">
+      <span>Kiến trúc ANN</span><br>
+      Input (784) → Dense(256, ReLU) → BN → Dropout<br>
+      → Dense(128, ReLU) → BN → Dropout<br>
+      → Dense(64, ReLU) → Dense(10, <span>Softmax</span>)
+    </div>
+  </div>
+
+</div>
+
+<script>
+const LABELS = ['Áo phông','Quần dài','Áo len','Váy','Áo khoác','Dép','Áo sơ mi','Giày thể thao','Túi xách','Bốt cao cổ'];
+const ICONS  = ['👕','👖','🧥','👗','🥼','🩴','👔','👟','👜','👢'];
+const MODEL_PATH = 'tfjs_fashion_model/model.json';
+
+const canvas = document.getElementById('drawCanvas');
+const ctx = canvas.getContext('2d');
+ctx.fillStyle = '#000';
+ctx.fillRect(0, 0, 280, 280);
+
+let drawing = false, model = null, rtTimer = null;
+
+// Brush
+const brushSlider = document.getElementById('brushSize');
+const brushVal = document.getElementById('brushVal');
+brushSlider.oninput = () => { brushVal.textContent = brushSlider.value; };
+
+// Drawing
+function getPos(e) {
+  const r = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / r.width;
+  const scaleY = canvas.height / r.height;
+  const src = e.touches ? e.touches[0] : e;
+  return { x: (src.clientX - r.left) * scaleX, y: (src.clientY - r.top) * scaleY };
+}
+function drawAt(x, y) {
+  ctx.beginPath();
+  ctx.arc(x, y, parseInt(brushSlider.value) / 2, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+}
+function onMove(e) {
+  if (!drawing) return;
+  const p = getPos(e);
+  drawAt(p.x, p.y);
+  if (document.getElementById('rtCheck').checked) {
+    clearTimeout(rtTimer);
+    rtTimer = setTimeout(predict, 250);
+  }
+}
+
+canvas.addEventListener('mousedown',  e => { drawing = true; drawAt(...Object.values(getPos(e))); });
+canvas.addEventListener('mousemove',  onMove);
+canvas.addEventListener('mouseup',    () => drawing = false);
+canvas.addEventListener('mouseleave', () => drawing = false);
+canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing = true; const p = getPos(e); drawAt(p.x, p.y); }, { passive: false });
+canvas.addEventListener('touchmove',  e => { e.preventDefault(); onMove(e); }, { passive: false });
+canvas.addEventListener('touchend',   () => drawing = false);
+
+document.getElementById('clearBtn').onclick = () => {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, 280, 280);
+  resetResult();
+};
+document.getElementById('predictBtn').onclick = () => predict();
+
+// UI helpers
+function setStatus(text, ready = false) {
+  document.getElementById('statusText').textContent = text;
+  const badge = document.getElementById('statusBadge');
+  badge.className = 'badge ' + (ready ? 'ready' : 'loading');
+}
+
+function resetResult() {
+  document.getElementById('resultTop').innerHTML = '<p class="result-hint">Vẽ xong rồi bấm Nhận dạng</p>';
+  document.getElementById('barList').innerHTML = '';
+}
+
+function showResult(probs) {
+  const idx = Array.from(probs).indexOf(Math.max(...probs));
+  const pct = Math.round(probs[idx] * 100);
+
+  document.getElementById('resultTop').innerHTML = `
+    <div class="result-emoji">${ICONS[idx]}</div>
+    <div class="result-label">${LABELS[idx]}</div>
+    <div class="result-conf">${pct}% độ tin cậy</div>
+  `;
+
+  const sorted = Array.from(probs).map((p, i) => ({ p, i })).sort((a, b) => b.p - a.p);
+  document.getElementById('barList').innerHTML = sorted.map(({ p, i }) => {
+    const v = Math.round(p * 100);
+    const isTop = i === idx;
+    return `<div class="bar-item">
+      <span class="name ${isTop ? 'top' : ''}">${ICONS[i]} ${LABELS[i]}</span>
+      <div class="bar-track"><div class="bar-fill ${isTop ? 'top' : ''}" style="width:${v}%"></div></div>
+      <span class="pct ${isTop ? 'top' : ''}">${v}%</span>
+    </div>`;
+  }).join('');
+}
+
+// Predict
+async function predict() {
+  if (!model) return;
+  const tensor = tf.tidy(() => {
+    let t = tf.browser.fromPixels(canvas, 1);
+    t = tf.image.resizeBilinear(t, [28, 28]);
+    t = t.toFloat().div(255.0);
+    return t.reshape([1, 784]);
+  });
+  const pred = model.predict(tensor);
+  const probs = await pred.data();
+  tensor.dispose();
+  pred.dispose();
+  showResult(probs);
+}
+
+// Load model
+async function loadModel() {
+  setStatus('Đang tải mô hình ANN...', false);
+  try {
+    model = await tf.loadLayersModel(MODEL_PATH);
+    setStatus('Mô hình sẵn sàng!', true);
+    document.getElementById('resultTop').innerHTML = '<p class="result-hint">Vẽ quần áo rồi bấm 🔍 Nhận dạng</p>';
+  } catch (e) {
+    setStatus('Lỗi tải model — kiểm tra folder tfjs_fashion_model/', false);
+    document.getElementById('resultTop').innerHTML = '<p class="result-hint" style="color:#fc8181;">Không tìm thấy model.<br>Kiểm tra folder tfjs_fashion_model/</p>';
+    console.error(e);
+  }
+}
+
+loadModel();
+</script>
+</body>
+</html>
